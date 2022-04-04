@@ -205,11 +205,11 @@ function pf(x::Vector{Float64}, case, ind, input)::Vector{Float64}
     fx1[ind.pq] = dP[ind.pq]
     # Reactive power equations for PQ buses
     fx2[ind.pq] = dQ[ind.pq]
-    # Slack bus real part equation
-    fx2[ind.vd] = xr[ind.vd] - input.Vg[1]
     # Squared voltage magnitude equation for slack and PV buses
-    fx2[ind.pv] = xr[ind.pv] .^ 2 + xi[ind.pv] .^ 2 - 
-        input.Vg[2:end] .^ 2
+    fx2[ind.pvd] = xr[ind.pvd] .^ 2 + xi[ind.pvd] .^ 2 - 
+        input.Vg .^ 2
+    # Slack bus real part equation
+    fx2[ind.vd] = xr[ind.vd] - input.Vg[ind.gen_vd]
     return vcat(fx1, fx2)
 end
 
@@ -271,8 +271,8 @@ function compare_derivatives(case, ind, input)
     u = -vcat(input.Pd, input.Qd)
     u[ind.pvd] += input.Pg
     u[ind.vd] = 0.0
-    u[.+(n,ind.vd)] = input.Vg[1]
-    u[.+(n,ind.pv)] = input.Vg[2:end] .^ 2
+    u[.+(n,ind.pvd)] = input.Vg .^ 2
+    u[.+(n,ind.vd)] = input.Vg[ind.gen_vd]
 
     # Wrapper for the full power flow equations
     pfw = (x) -> map((i) -> pf_i(x, i, case, ind, u), 1:(2*n))
@@ -326,16 +326,18 @@ function compute_qc(case_dir::String,
     c_pv = deepcopy(c_old.pvd)
     c_pv[ind_vd] = false
     c_pvq = collect(c_old.pq .| c_pv)
+    ind_gen_vd = findfirst(findall(c_old.pvd) .== ind_vd)
     c = @NamedTuple{vd::Vector{Bool}, pv::Vector{Bool},
         pq::Vector{Bool}, pvq::Vector{Bool}, pvd::Vector{Bool}}(
         (c_vd, c_pv, c_old.pq, c_pvq, c_old.pvd))
+    # TODO: compute active power of slack->PV buses
 
     # Cartesian indices
     ind = @NamedTuple{vd::Int64, pv::Vector{Int64},
         pq::Vector{Int64}, pvq::Vector{Int64}, 
-        pvd::Vector{Int64}}(
+        pvd::Vector{Int64}, gen_vd::Int64}(
         (ind_vd, findall(c.pv), findall(c.pq), 
-        findall(c.pvq), findall(c.pvd)))
+        findall(c.pvq), findall(c.pvd), ind_gen_vd))
     
     # Compute PF Hessians and Jacobian
     Hpf, HP, HQ, HV, Hloss = pf_hessian(case,ind)
